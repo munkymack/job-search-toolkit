@@ -6,46 +6,44 @@ A working job search system: skills, workflows, tools, and templates, packaged t
 
 ## What's in the folder
 
-```
-README.md               this file
-overview.md             every step, tool, and skill
-chatgpt-setup.md        setup for ChatGPT: instructions block, file list, what it can't do
-claude-code-setup.md    setup for Claude Code: CLAUDE.md, working folder, optional skills
-gemini-setup.md         setup for Gemini: Gem instructions, knowledge files, what it can't do
+**Top level**
 
-skills/                 8 paste-ready procedures (capture-jd, recruiter-screen,
-                        log-application, pipeline-sweep, draft-followup,
-                        cleanup-pass, resume-pdf, capture-lessons)
+| File | What it is |
+|---|---|
+| `README.md` | This file |
+| `overview.md` | Every step, tool, and skill |
+| `chatgpt-setup.md` | Setup for ChatGPT: instructions block, file list, what it can't do |
+| `claude-code-setup.md` | Setup for Claude Code: CLAUDE.md, working folder, optional skills |
+| `gemini-setup.md` | Setup for Gemini: Gem instructions, knowledge files, what it can't do |
 
-workflows/              multi-step procedures
-  setup-path.md         the order to build things in
-  tailor-resume.md      the 10-step application loop
-  cover-letter.md
-  linkedin-outreach.md
-  warm-network-mining.md
-  weekly-cadence.md
-  prompts-library.md
+**`skills/`**: 8 paste-ready procedures: `capture-jd`, `recruiter-screen`, `log-application`, `pipeline-sweep`, `draft-followup`, `cleanup-pass`, `resume-pdf`, `capture-lessons`.
 
-templates/              documents you fill with your own material
-  about-me-template.md
-  story-blocks-build-guide.md
-  voice-profile-guide.md
-  writing-rules-template.md   (writing rules + craft rules)
-  search-strategy-template.md
-  target-companies-template.md
-  master-resume-template.md
-  portfolio-context-template.md
-  assessments-guide.md
-  outreach-templates.md
+**`workflows/`**: multi-step procedures.
 
-tools/                  things you run on your own machine
-  warm-connections-triage/    LinkedIn export -> Warm/Skip -> JSON
-  ats-search-console/         Google searches scoped to each ATS
-  resume-pdf/                 PDF verifier (Python + poppler)
-  tracker-sheets/             Google Sheets / Excel tracker schema
-  tracker-notion/             Notion tracker + Python client
-  local-models/               voice metrics and optional local extraction
-```
+| File | What it is |
+|---|---|
+| `setup-path.md` | The order to build things in |
+| `tailor-resume.md` | The 10-step application loop |
+| `cover-letter.md` | |
+| `linkedin-outreach.md` | |
+| `warm-network-mining.md` | |
+| `weekly-cadence.md` | |
+| `prompts-library.md` | |
+
+**`templates/`**: documents you fill with your own material.
+
+`about-me-template.md`, `story-blocks-build-guide.md`, `voice-profile-guide.md`, `writing-rules-template.md` (writing rules + craft rules), `search-strategy-template.md`, `target-companies-template.md`, `master-resume-template.md`, `portfolio-context-template.md`, `assessments-guide.md`, `outreach-templates.md`
+
+**`tools/`**: things you run on your own machine.
+
+| Folder | What it does |
+|---|---|
+| `warm-connections-triage/` | LinkedIn export -> Warm/Skip -> JSON |
+| `ats-search-console/` | Google searches scoped to each ATS |
+| `resume-pdf/` | PDF verifier (Python + poppler) |
+| `tracker-sheets/` | Google Sheets / Excel tracker schema |
+| `tracker-notion/` | Notion tracker + Python client |
+| `local-models/` | Voice metrics and optional local extraction |
 
 ## The fastest useful path
 
