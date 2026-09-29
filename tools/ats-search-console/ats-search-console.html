@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ATS Search Console</title>
+<style>
+  :root { --bg:#f7f7f5; --fg:#1d1d1b; --muted:#6b6b66; --line:#dcdcd6; --card:#fff; --accent:#1f5eff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161615; --fg:#ececea; --muted:#9a9a94; --line:#333330; --card:#1e1e1c; --accent:#7ea2ff; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:24px 16px 64px; background:var(--bg); color:var(--fg);
+         font:15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.lede { color: var(--muted); margin: 0 0 20px; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  label { display:block; font-weight:600; margin-bottom:4px; }
+  .hint { color:var(--muted); font-size:13px; margin:0 0 10px; }
+  input[type=text] { width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:6px;
+                     background:var(--bg); color:var(--fg); font:inherit; }
+  .row { display:flex; gap:24px; flex-wrap:wrap; align-items:center; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  .seg button { border:0; background:transparent; color:var(--fg); padding:7px 12px; font:inherit; cursor:pointer; }
+  .seg button[aria-pressed=true] { background:var(--accent); color:#fff; }
+  .seg-label { color:var(--muted); font-size:13px; margin-right:8px; }
+  ul { list-style:none; padding:0; margin:0; }
+  li { display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;
+       padding:10px 0; border-top:1px solid var(--line); }
+  li:first-child { border-top:0; }
+  .name { font-weight:600; min-width:150px; }
+  .q { flex:1 1 300px; color:var(--muted); font:12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; word-break:break-word; }
+  .acts { display:flex; gap:8px; }
+  a.btn, button.btn { border:1px solid var(--line); background:var(--card); color:var(--fg); padding:6px 11px;
+                      border-radius:6px; font-size:13px; font-family:inherit; text-decoration:none; cursor:pointer; }
+  a.btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  #toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--fg); color:var(--bg);
+           padding:8px 14px; border-radius:6px; font-size:13px; opacity:0; transition:opacity .15s; pointer-events:none; }
+  #toast.up { opacity:1; }
+  .note { color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>ATS Search Console</h1>
+  <p class="lede">Google searches scoped to one applicant tracking system at a time. Type your titles and locations once, get a live link per board. No network calls from this page; it only builds links.</p>
+
+  <div class="panel">
+    <label for="titles">Job titles</label>
+    <p class="hint">Comma separated. Each one becomes an exact-match phrase, joined with OR.</p>
+    <input id="titles" type="text" value="Product Manager, Senior Product Manager" autocomplete="off">
+    <div style="height:14px"></div>
+    <label for="locs">Locations</label>
+    <p class="hint">Comma separated, joined with OR. Include "Remote" if you want it. Leave blank for no location filter.</p>
+    <input id="locs" type="text" value="Remote" autocomplete="off">
+  </div>
+
+  <div class="panel row">
+    <div><span class="seg-label">Posted</span>
+      <span class="seg" id="win">
+        <button data-v="w" aria-pressed="true">Past week</button>
+        <button data-v="m" aria-pressed="false">Past month</button>
+        <button data-v="" aria-pressed="false">Any time</button>
+      </span></div>
+    <div><span class="seg-label">Type</span>
+      <span class="seg" id="grp">
+        <button data-v="ft" aria-pressed="true">Full-time</button>
+        <button data-v="fl" aria-pressed="false">Freelance / contract</button>
+      </span></div>
+  </div>
+
+  <div class="panel"><ul id="list"></ul></div>
+
+  <p class="note">Rules baked in: one <code>site:</code> per query, never inside parentheses (Google drops the host filter when it is). Straight quotes only; curly quotes break exact match. Full-time queries carry no "full-time" term on purpose, since most postings never say it. Freelance queries add a contract clause.</p>
+</main>
+<div id="toast" role="status"></div>
+
+<script>
+(function () {
+  // host: the site: filter. flx: freelance clause override (Workday words contracts differently).
+  var BOARDS = [
+    { name: "Greenhouse", host: "job-boards.greenhouse.io" },
+    { name: "Greenhouse (legacy)", host: "boards.greenhouse.io" },
+    { name: "Lever", host: "jobs.lever.co" },
+    { name: "Ashby", host: "ashbyhq.com" },
+    { name: "Workday", host: "myworkdayjobs.com", flx: ["contract", "contingent", "temporary"] },
+    { name: "Rippling ATS", host: "rippling-ats.com" },
+    { name: "Rippling", host: "rippling.com" },
+    { name: "BambooHR", host: "bamboohr.com" },
+    { name: "Breezy.hr", host: "breezy.hr" },
+    { name: "Gusto", host: "jobs.gusto.com" },
+    { name: "Y Combinator", host: "workatastartup.com" },
+    { name: "Sequoia", host: "sequoiacapital.com" },
+    { name: "a16z", host: "a16z.com" }
+  ];
+  var FL_DEFAULT = ["contract", "contractor", "freelance", "temporary", "fractional"];
+  var state = { win: "w", grp: "ft" };
+  var $ = function (id) { return document.getElementById(id); };
+
+  function terms(str) {
+    return str.replace(/[“”]/g, '"').split(",")
+      .map(function (s) { return s.replace(/"/g, "").trim(); })
+      .filter(Boolean);
+  }
+  function orGroup(list) {
+    return "(" + list.map(function (t) { return '"' + t + '"'; }).join(" OR ") + ")";
+  }
+  function query(b) {
+    var t = terms($("titles").value), l = terms($("locs").value);
+    if (!t.length) return "";
+    var q = "site:" + b.host + " " + orGroup(t);
+    if (l.length) q += " " + orGroup(l);
+    if (state.grp === "fl") q += " " + orGroup(b.flx || FL_DEFAULT);
+    return q;
+  }
+  function url(q) {
+    var u = "https://www.google.com/search?q=" + encodeURIComponent(q);
+    if (state.win) u += "&tbs=qdr:" + state.win;
+    return u;
+  }
+  function toast(msg) {
+    var t = $("toast"); t.textContent = msg; t.classList.add("up");
+    clearTimeout(toast.id); toast.id = setTimeout(function () { t.classList.remove("up"); }, 1500);
+  }
+  function copy(text) {
+    function fallback() {
+      var ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta);
+      ta.select(); try { document.execCommand("copy"); toast("Copied"); } catch (e) { toast("Copy failed"); }
+      document.body.removeChild(ta);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { toast("Copied"); }, fallback);
+    } else { fallback(); }
+  }
+  function save() {
+    try { localStorage.setItem("ats_console_v1", JSON.stringify({ t: $("titles").value, l: $("locs").value })); } catch (e) {}
+  }
+  function load() {
+    try {
+      var s = JSON.parse(localStorage.getItem("ats_console_v1") || "null");
+      if (s) { $("titles").value = s.t; $("locs").value = s.l; }
+    } catch (e) {}
+  }
+  function render() {
+    var ul = $("list"); ul.innerHTML = "";
+    BOARDS.forEach(function (b) {
+      var q = query(b), li = document.createElement("li");
+      var name = document.createElement("span"); name.className = "name"; name.textContent = b.name;
+      var qs = document.createElement("span"); qs.className = "q"; qs.textContent = q || "Add at least one title.";
+      var acts = document.createElement("span"); acts.className = "acts";
+      if (q) {
+        var open = document.createElement("a"); open.className = "btn primary"; open.textContent = "Search";
+        open.href = url(q); open.target = "_blank"; open.rel = "noopener noreferrer";
+        var cq = document.createElement("button"); cq.className = "btn"; cq.textContent = "Copy query";
+        cq.addEventListener("click", function () { copy(q); });
+        var cl = document.createElement("button"); cl.className = "btn"; cl.textContent = "Copy link";
+        cl.addEventListener("click", function () { copy(url(q)); });
+        acts.appendChild(open); acts.appendChild(cq); acts.appendChild(cl);
+      }
+      li.appendChild(name); li.appendChild(qs); li.appendChild(acts); ul.appendChild(li);
+    });
+  }
+  function seg(id, key) {
+    $(id).addEventListener("click", function (e) {
+      var btn = e.target.closest("button"); if (!btn) return;
+      state[key] = btn.getAttribute("data-v");
+      Array.prototype.forEach.call($(id).querySelectorAll("button"), function (b) {
+        b.setAttribute("aria-pressed", b === btn ? "true" : "false");
+      });
+      render();
+    });
+  }
+  ["titles", "locs"].forEach(function (id) { $(id).addEventListener("input", function () { save(); render(); }); });
+  seg("win", "win"); seg("grp", "grp");
+  load(); render();
+})();
+</script>
+</body>
+</html>

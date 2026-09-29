@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LinkedIn Connection Triage</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;background:#f0f2f5;color:#333}
+#controls{
+  position:sticky;top:0;z-index:20;background:#fff;border-bottom:1px solid #d0d3d8;
+  padding:10px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+  box-shadow:0 1px 4px rgba(0,0,0,.08)
+}
+#search{
+  flex:1;min-width:220px;padding:7px 11px;border:1px solid #ccc;border-radius:5px;
+  font-size:14px;outline:none
+}
+#search:focus{border-color:#1a73e8;box-shadow:0 0 0 2px rgba(26,115,232,.15)}
+select{
+  padding:7px 11px;border:1px solid #ccc;border-radius:5px;font-size:14px;
+  background:#fff;cursor:pointer;outline:none
+}
+select:focus{border-color:#1a73e8}
+#progress{font-size:13px;color:#666;white-space:nowrap;padding:0 4px}
+#exportBtn{
+  padding:7px 15px;background:#1a73e8;color:#fff;border:none;border-radius:5px;
+  cursor:pointer;font-size:14px;font-weight:500;white-space:nowrap
+}
+#exportBtn:hover{background:#1557b0}
+#exportBtn:disabled{background:#9ab8e8;cursor:default}
+table{width:100%;border-collapse:collapse;background:#fff;table-layout:auto}
+thead th{
+  background:#f8f9fa;padding:9px 10px;text-align:left;
+  border-bottom:2px solid #d0d3d8;font-weight:600;font-size:12px;
+  text-transform:uppercase;letter-spacing:.4px;white-space:nowrap;
+  position:sticky;top:0  /* updated by JS */
+}
+tbody tr{border-bottom:1px solid #eee;transition:background .1s}
+tbody tr:hover{background:#f5f7fa}
+tbody tr.warm{background:#e6f4ea}
+tbody tr.warm:hover{background:#d4eeda}
+tbody tr.skip{background:#f5f5f5;color:#aaa}
+tbody tr.skip:hover{background:#efefef}
+tbody tr.skip a{color:#aaa}
+td{padding:7px 10px;font-size:13px;vertical-align:middle;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+td.wrap{white-space:normal;min-width:100px}
+td a{color:#1a73e8;text-decoration:none}
+td a:hover{text-decoration:underline}
+.tier-btn{
+  padding:3px 12px;border-radius:12px;border:1px solid #ccc;
+  background:#fff;cursor:pointer;font-size:12px;font-weight:600;
+  min-width:66px;text-align:center;transition:all .1s;white-space:nowrap
+}
+.tier-btn:hover{border-color:#888;background:#f5f5f5}
+.tier-btn.warm{background:#34a853;color:#fff;border-color:#2d9249}
+.tier-btn.warm:hover{background:#2d9249}
+.tier-btn.skip{background:#9e9e9e;color:#fff;border-color:#888}
+.tier-btn.skip:hover{background:#888}
+.no-results{padding:48px;text-align:center;color:#999;font-size:15px}
+td.num{color:#bbb;font-size:12px;min-width:36px}
+</style>
+</head>
+<body>
+
+<div id="controls">
+  <input type="text" id="search" placeholder="Search name, company, position…" autocomplete="off">
+  <select id="tierFilter">
+    <option value="all">All tiers</option>
+    <option value="warm">Warm only</option>
+    <option value="skip">Skip only</option>
+    <option value="unreviewed">Unreviewed</option>
+  </select>
+  <select id="sortBy">
+    <option value="">Sort: Default</option>
+    <option value="company">Sort: Company A–Z</option>
+    <option value="connected_on_desc">Sort: Recent first</option>
+    <option value="connected_on_asc">Sort: Oldest first</option>
+    <option value="name">Sort: Name A–Z</option>
+  </select>
+  <label id="loadLabel" style="padding:7px 15px;border:1px solid #1a73e8;color:#1a73e8;border-radius:5px;cursor:pointer;font-size:14px;font-weight:500;white-space:nowrap">
+    Load Connections.csv<input type="file" id="csvFile" accept=".csv,text/csv" hidden>
+  </label>
+  <div id="progress">No file loaded</div>
+  <button id="exportBtn">Export Warm JSON</button>
+</div>
+
+<table id="connectionTable">
+  <thead>
+    <tr>
+      <th class="num">#</th>
+      <th>First</th>
+      <th>Last</th>
+      <th>Company</th>
+      <th>Position</th>
+      <th>Connected</th>
+      <th>Profile</th>
+      <th>Tier</th>
+    </tr>
+  </thead>
+  <tbody id="tableBody"></tbody>
+</table>
+
+<script>
+let CONNECTIONS = [];
+const CONN_KEY = 'lc_conns_v1';
+
+// Minimal RFC 4180 CSV parser: quoted fields, escaped quotes, newlines inside quotes.
+function parseCSV(text) {
+  const rows = []; let row = [], field = '', inQ = false;
+  text = text.replace(/^﻿/, '');
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQ) {
+      if (ch === '"') { if (text[i+1] === '"') { field += '"'; i++; } else inQ = false; }
+      else field += ch;
+    } else if (ch === '"') inQ = true;
+    else if (ch === ',') { row.push(field); field = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i+1] === '\n') i++;
+      row.push(field); field = ''; rows.push(row); row = [];
+    } else field += ch;
+  }
+  if (field !== '' || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+
+// LinkedIn's Connections.csv starts with a few "Notes:" lines before the header row.
+function connectionsFromCSV(text) {
+  const rows = parseCSV(text);
+  const h = rows.findIndex(r => r.some(x => x.trim() === 'First Name') && r.some(x => x.trim() === 'URL'));
+  if (h < 0) return { list: [], skipped: 0, error: 'No header row with "First Name" and "URL" found. Is this LinkedIn\'s Connections.csv?' };
+  const col = {}; rows[h].forEach((name, i) => col[name.trim()] = i);
+  const get = (r, name) => (col[name] === undefined ? '' : (r[col[name]] || '').trim());
+  const list = []; let skipped = 0;
+  for (const r of rows.slice(h + 1)) {
+    if (r.every(x => !x.trim())) continue;
+    const c = {
+      first_name: get(r, 'First Name'), last_name: get(r, 'Last Name'), url: get(r, 'URL'),
+      email: get(r, 'Email Address'), company: get(r, 'Company'), position: get(r, 'Position'),
+      connected_on: get(r, 'Connected On')
+    };
+    if (!c.url) { skipped++; continue; }
+    list.push(c);
+  }
+  return { list, skipped, error: '' };
+}
+
+function saveConnections() {
+  try { localStorage.setItem(CONN_KEY, JSON.stringify(CONNECTIONS)); } catch (e) {}
+}
+function loadSavedConnections() {
+  try { CONNECTIONS = JSON.parse(localStorage.getItem(CONN_KEY) || '[]'); } catch (e) { CONNECTIONS = []; }
+}
+
+
+const MONTHS = {Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+
+function parseDate(s) {
+  if (!s) return new Date(0);
+  const p = s.split(' ');
+  if (p.length === 3) {
+    const m = MONTHS[p[1]];
+    if (m !== undefined) return new Date(+p[2], m, +p[0]);
+  }
+  return new Date(s);
+}
+
+function toISO(s) {
+  const d = parseDate(s);
+  if (!d || isNaN(d)) return s;
+  const y = d.getFullYear();
+  const mo = String(d.getMonth()+1).padStart(2,'0');
+  const da = String(d.getDate()).padStart(2,'0');
+  return `${y}-${mo}-${da}`;
+}
+
+function esc(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+const STORAGE_KEY = 'lc_tiers_v1';
+
+function loadTiers() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); }
+  catch(e) { return {}; }
+}
+
+let tiers = loadTiers();
+let searchText = '';
+let tierFilter = 'all';
+let sortBy = '';
+
+function saveTiers() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(tiers));
+}
+
+function cycleTier(url) {
+  const cur = tiers[url] || '';
+  const next = cur === '' ? 'warm' : cur === 'warm' ? 'skip' : '';
+  if (next === '') delete tiers[url]; else tiers[url] = next;
+  saveTiers();
+  updateRow(url, next);
+  updateProgress();
+}
+
+function updateRow(url, tier) {
+  const row = document.querySelector(`tr[data-url="${esc(url)}"]`);
+  if (!row) return;
+  row.className = tier === 'warm' ? 'warm' : tier === 'skip' ? 'skip' : '';
+  const btn = row.querySelector('.tier-btn');
+  if (!btn) return;
+  btn.className = 'tier-btn' + (tier ? ' ' + tier : '');
+  btn.textContent = tier === 'warm' ? 'Warm' : tier === 'skip' ? 'Skip' : '—';
+}
+
+function getFiltered() {
+  return CONNECTIONS.filter(c => {
+    if (searchText) {
+      const q = searchText.toLowerCase();
+      const name = (c.first_name + ' ' + c.last_name).toLowerCase();
+      if (!name.includes(q) && !c.company.toLowerCase().includes(q) && !c.position.toLowerCase().includes(q)) return false;
+    }
+    const tier = tiers[c.url] || '';
+    if (tierFilter === 'warm' && tier !== 'warm') return false;
+    if (tierFilter === 'skip' && tier !== 'skip') return false;
+    if (tierFilter === 'unreviewed' && tier !== '') return false;
+    return true;
+  });
+}
+
+function getSorted(list) {
+  if (!sortBy) return list;
+  const copy = list.slice();
+  if (sortBy === 'company') copy.sort((a,b) => a.company.localeCompare(b.company));
+  else if (sortBy === 'connected_on_desc') copy.sort((a,b) => parseDate(b.connected_on) - parseDate(a.connected_on));
+  else if (sortBy === 'connected_on_asc') copy.sort((a,b) => parseDate(a.connected_on) - parseDate(b.connected_on));
+  else if (sortBy === 'name') copy.sort((a,b) => (a.last_name+a.first_name).localeCompare(b.last_name+b.first_name));
+  return copy;
+}
+
+function updateProgress() {
+  const warm = Object.values(tiers).filter(t=>t==='warm').length;
+  const skip = Object.values(tiers).filter(t=>t==='skip').length;
+  const reviewed = warm + skip;
+  document.getElementById('progress').textContent =
+    `${reviewed} of ${CONNECTIONS.length} reviewed · ${warm} Warm · ${skip} Skip`;
+  const btn = document.getElementById('exportBtn');
+  btn.textContent = warm > 0 ? `Export ${warm} Warm` : 'Export Warm JSON';
+  btn.disabled = warm === 0;
+}
+
+function render() {
+  const rows = getSorted(getFiltered());
+  const tbody = document.getElementById('tableBody');
+
+  if (rows.length === 0) {
+    const msg = CONNECTIONS.length === 0
+      ? 'Load your LinkedIn Connections.csv to begin.'
+      : 'No connections match your filters.';
+    tbody.innerHTML = '<tr><td colspan="8" class="no-results">' + msg + '</td></tr>';
+    updateProgress();
+    return;
+  }
+
+  const html = rows.map((c, i) => {
+    const tier = tiers[c.url] || '';
+    const rowClass = tier === 'warm' ? 'warm' : tier === 'skip' ? 'skip' : '';
+    const btnClass = tier ? ' ' + tier : '';
+    const btnText = tier === 'warm' ? 'Warm' : tier === 'skip' ? 'Skip' : '—';
+    const profileLink = c.url
+      ? `<a href="${esc(c.url)}" target="_blank" rel="noopener noreferrer">View</a>` : '';
+    return `<tr class="${rowClass}" data-url="${esc(c.url)}">
+      <td class="num">${i+1}</td>
+      <td>${esc(c.first_name)}</td>
+      <td>${esc(c.last_name)}</td>
+      <td title="${esc(c.company)}">${esc(c.company)}</td>
+      <td title="${esc(c.position)}">${esc(c.position)}</td>
+      <td>${esc(c.connected_on)}</td>
+      <td>${profileLink}</td>
+      <td><button class="tier-btn${btnClass}" data-url="${esc(c.url)}">${btnText}</button></td>
+    </tr>`;
+  }).join('');
+
+  tbody.innerHTML = html;
+  updateProgress();
+}
+
+// Event delegation for tier buttons
+document.getElementById('tableBody').addEventListener('click', e => {
+  const btn = e.target.closest('.tier-btn');
+  if (btn && btn.dataset.url) cycleTier(btn.dataset.url);
+});
+
+document.getElementById('search').addEventListener('input', e => {
+  searchText = e.target.value.trim();
+  render();
+});
+
+document.getElementById('tierFilter').addEventListener('change', e => {
+  tierFilter = e.target.value;
+  render();
+});
+
+document.getElementById('sortBy').addEventListener('change', e => {
+  sortBy = e.target.value;
+  render();
+});
+
+document.getElementById('exportBtn').addEventListener('click', () => {
+  const warm = CONNECTIONS
+    .filter(c => tiers[c.url] === 'warm')
+    .map(c => ({
+      first_name: c.first_name,
+      last_name: c.last_name,
+      full_name: (c.first_name + ' ' + c.last_name).trim(),
+      linkedin_url: c.url,
+      email: c.email || '',
+      company: c.company,
+      position: c.position,
+      connected_on: toISO(c.connected_on),
+      relationship_tier: 'warm',
+      intro_eligible: true
+    }));
+  if (warm.length === 0) return;
+  const blob = new Blob([JSON.stringify(warm, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'warm-connections.json';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(a.href);
+});
+
+// Set sticky header top to match controls height
+function fixStickyHeader() {
+  const h = document.getElementById('controls').offsetHeight;
+  document.querySelectorAll('thead th').forEach(th => th.style.top = h + 'px');
+}
+window.addEventListener('resize', fixStickyHeader);
+
+document.getElementById('csvFile').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const { list, skipped, error } = connectionsFromCSV(String(reader.result));
+    if (error) { document.getElementById('progress').textContent = error; return; }
+    CONNECTIONS = list;
+    saveConnections();
+    render();
+    if (skipped) document.getElementById('progress').textContent += ` · ${skipped} rows without a profile URL skipped`;
+  };
+  reader.readAsText(f);
+  e.target.value = '';
+});
+
+// Initial render
+loadSavedConnections();
+render();
+fixStickyHeader();
+</script>
+</body>
+</html>

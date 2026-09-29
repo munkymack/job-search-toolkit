@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.env
+.DS_Store
+node_modules/
+# your own data stays local
+tools/local-models/corpus/
+tools/local-models/out/
+warm-connections.json
+Connections.csv
+jds/
+resume/
