@@ -24,11 +24,11 @@ A working job search system: skills, workflows, tools, and templates, packaged t
 |---|---|
 | `setup-path.md` | The order to build things in |
 | `tailor-resume.md` | The 10-step application loop |
-| `cover-letter.md` | |
-| `linkedin-outreach.md` | |
-| `warm-network-mining.md` | |
-| `weekly-cadence.md` | |
-| `prompts-library.md` | |
+| `cover-letter.md` | Short cover letters built around the company's problem |
+| `linkedin-outreach.md` | Short, researched messages to one real person |
+| `warm-network-mining.md` | Turning your LinkedIn connections into a ranked list of people to write to |
+| `weekly-cadence.md` | A five-day weekly rhythm that shifts effort toward network and warm outreach |
+| `prompts-library.md` | Copy-paste prompts for recurring jobs that aren't full skills |
 
 **`templates/`**: documents you fill with your own material.
 
